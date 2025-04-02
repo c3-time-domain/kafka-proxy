@@ -41,6 +41,11 @@ services:
     environment:
       KAFKA_PROXY_TOKEN: abcdefg
       KAFKA_FLUSHER_SOCKET_PATH: /tmp/test_flusher_socket
+    volumes:
+      - type: volume
+        source: topic_persistance
+        target: /kafka_topic_cache
       
 volumes:
   kafka_data:
+  topic_persistance:

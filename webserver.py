@@ -10,8 +10,9 @@ _loglevel = logging.DEBUG
 # _loglevel = logging.INFO
 
 
-class HandleRequest( flask.views.View ):
+class BaseHandleRequest( flask.views.View ):
     def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
         self.token = os.getenv( "KAFKA_PROXY_TOKEN", "default-token" )
         self.socket_file = os.getenv( "KAFKA_FLUSHER_SOCKET_PATH", "/tmp/flusher_socket" )
         self.comm_timeout = 2
@@ -22,14 +23,18 @@ class HandleRequest( flask.views.View ):
         try:
             resp = sock.recv( 256 )
         except TimeoutError:
-            flask.current_app.logger.debug( "Timed out waiting for response from server after DONE." )
+            flask.current_app.logger.error( "Timed out waiting for response from server after DONE." )
             return False
         if resp != b'ok':
-            flask.current_app.logger.debug( f"Got unexpected response {resp} from server after DONE." )
+            flask.current_app.logger.error( f"Got unexpected response {resp} from server after DONE." )
             return False
 
         return True
 
+
+class HandleRequest( BaseHandleRequest ):
+    def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
 
     def dispatch_request( self ):
         if flask.request.headers.get( "x-kafka-proxy-token" ) != self.token:
@@ -93,7 +98,8 @@ class HandleRequest( flask.views.View ):
                 now = datetime.datetime.now( tz=datetime.UTC ).isoformat()
                 return f"Error trying to tell the flusher we were done at {now}.", 500
 
-            return f"{len(msgs)} messages received", 200
+            rval = f"{len(msgs)} messages received", 200
+            return rval
 
         except Exception as ex:
             flask.current_app.logger.exception( ex )
@@ -105,9 +111,46 @@ class HandleRequest( flask.views.View ):
                 sock.close()
 
 
+
+class ChangeTopic( BaseHandleRequest ):
+    def dispatch_request( self, topic ):
+        if flask.request.headers.get( "x-kafka-proxy-token" ) != self.token:
+            return "Error, wrong x-kafka-proxy-token in HTTP headers", 500
+
+        sock = None
+        try:
+            sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
+            flask.current_app.logger.debug( f"Trying to connect to socket at {self.socket_file}" )
+            sock.connect( self.socket_file )
+            sock.settimeout( self.comm_timeout )
+
+            msg = b'TPIC' + topic.encode('utf-8')
+            sock.send( msg  )
+            now = datetime.datetime.now( tz=datetime.UTC )
+            try:
+                resp = sock.recv( 256 )
+                flask.current_app.logger.debug( f"Got response from topic change from server: {resp}" )
+            except TimeoutError:
+                flask.current_app.logger.error( "Timed out waiting to hear from flusher about topic change." )
+                return "Timed out waiting for topic change response.", 500
+            if resp != b'ok':
+                flask.current_app.logger.error( f"Unexpected response from flusher after topic change: {resp}" )
+                return "Unexpected response from flusher", 500
+
+            if not self.send_done( sock ):
+                now = datetime.datetime.now( tz=datetime.UTC ).isoformat()
+                return f"Error trying to tell the flusher we were done after topic change at {now}", 500
+
+        finally:
+            sock.close()
+
+        return f"Topic changed to {topic}", 200
+
+
 # ======================================================================
 
 app = flask.Flask( __name__, instance_relative_config=True )
 app.logger.setLevel( _loglevel )
 
 app.add_url_rule( "/", view_func=HandleRequest.as_view("/"), methods=["POST"], strict_slashes=False )
+app.add_url_rule( "/topic/<topic>", view_func=ChangeTopic.as_view("/topic"), methods=["POST"], strict_slashes=False )

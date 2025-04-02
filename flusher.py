@@ -21,10 +21,10 @@ if not _logger.hasHandlers():
 
 
 class Flusher:
-    def __init__( self, topic, timeout=5, maxmsgs=100,
+    def __init__( self, topic=None, force_topic=False, timeout=5, maxmsgs=100,
                   servers="kafka:9092", max_message_size=262144, batch_size=131072, lingerms=50,
-                  sockpath=os.getenv( 'KAFKA_FLUSHER_SOCKET_PATH', "/tmp/flusher_socket" ) ):
-        self.topic = topic
+                  sockpath=os.getenv( 'KAFKA_FLUSHER_SOCKET_PATH', "/tmp/flusher_socket" ),
+                  topiccache=os.getenv( 'KAFKA_FLUSHER_TOPIC_CACHE', "/kafka_topic_cache/topic" ) ):
         self.timeout = timeout
         self.maxmsgs = maxmsgs
         self.servers = servers
@@ -38,6 +38,20 @@ class Flusher:
         self.debugevery = 100
         self.infoevery = 10000
         self.lastflush = time.monotonic()
+
+        self.topiccache = pathlib.Path( topiccache )
+        if force_topic:
+            if topic is None:
+                raise ValueError( "force_topic requires a topic!" )
+            self.topic = topic
+        else:
+            if self.topiccache.is_file():
+                with open( self.topiccache ) as ifp:
+                    self.topic = ifp.readline().strip()
+            else:
+                if topic is None:
+                    raise ValueError( "No cached topic, need to specify a topic." )
+                self.topic = topic
 
 
     def flush( self ):
@@ -94,14 +108,15 @@ class Flusher:
                                 continue
 
                             if bdata[0:4] == b'TPIC':
-                                topiclen = int.from_bytes( bdata[4:8], byteorder='little' )
-                                if len( bdata ) < topiclen + 8:
-                                    _logger.error( f"Got topic of length {topiclen}, but only "
-                                                   f"{len(bdata)-8} bytes of data!" )
-                                    conn.send( b'error' )
-                                else:
-                                    self.topic = bdata[ 8:8+topiclen ].decode( 'utf-8' )
+                                try:
+                                    topic = bdata[ 4: ].decode( 'utf-8' )
+                                    with open( self.topiccache, "w" ) as ofp:
+                                        ofp.write( self.topic )
+                                    self.topic = topic
                                     conn.send( b'ok' )
+                                except Exception as ex:
+                                    _logger.exception( f"Failed to write {self.topiccache}: {ex}" )
+                                    conn.send( b'error' )
                                 continue
 
                             if bdata[0:4] != b'MESG':
@@ -139,7 +154,10 @@ def main():
     parser.add_argument( "-s", "--servers",
                          default=os.getenv("KAFKA_PROXY_KAFKA_SERVER", "kafka:29092"),
                          help="Kafka servers to produce to." )
-    parser.add_argument( "-t", "--topic", required=True, help="Topic to write to" )
+    parser.add_argument( "-t", "--topic", default='ignore-this-topic', help="Topic to write to" )
+    parser.add_argument( "--force-topic", default=False, action='store_true',
+                         help=( "Normally --topic is used only if there isn't a cached topic. "
+                                "Add --force-topic to use the topic in --topic instead of the cached one." ) )
     parser.add_argument( "-f", "--flush-timeout", default=10, type=int,
                          help="Flush after no messages received for this many seconds" )
     parser.add_argument( "-n", "--num-messages", default=100, type=int,
@@ -159,7 +177,8 @@ def main():
     if args.verbose:
         _logger.setLevel( logging.DEBUG )
 
-    flusher = Flusher( args.topic, timeout=args.flush_timeout, maxmsgs=args.num_messages,
+    flusher = Flusher( args.topic, force_topic=args.force_topic,
+                       timeout=args.flush_timeout, maxmsgs=args.num_messages,
                        servers=args.servers, max_message_size=args.max_message_size,
                        batch_size=args.batch_size, lingerms=args.linger_ms,
                        sockpath=args.socket_path )
