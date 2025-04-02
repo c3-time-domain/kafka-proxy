@@ -1,5 +1,8 @@
 # Python cache
 **/__pycache__/**
 
+# venvs
+test/venv/**
+
 # Emacs backup files
 **~

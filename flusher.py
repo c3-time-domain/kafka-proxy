@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import pathlib
 import socket
@@ -13,7 +14,7 @@ _logger.propagate = False
 if not _logger.hasHandlers():
     _logout = logging.StreamHandler( sys.stderr )
     _logger.addHandler( _logout )
-    _formatter = logging.Formatter( f'[%(asctime)s - flusher - %(levelname)s] - %(message)s',
+    _formatter = logging.Formatter( '[%(asctime)s - flusher - %(levelname)s] - %(message)s',
                                     datefmt='%Y-%m-%d %H:%M:%S' )
     _logout.setFormatter( _formatter )
     _logger.setLevel( logging.INFO )
@@ -40,7 +41,7 @@ class Flusher:
 
 
     def flush( self ):
-        _logger.debug( f"Flushing {len(msgs)} messages..." )
+        _logger.debug( f"Flushing {len(self.msgs)} messages..." )
         producer = confluent_kafka.Producer( { 'bootstrap.servers': self.servers,
                                                'batch.size': self.batch_size,
                                                'linger.ms': self.lingerms } )
@@ -56,47 +57,88 @@ class Flusher:
         sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
         if self.sockpath.exists():
             self.sockpath.unlink()
-        sock.bind( sockpath )
+        sock.bind( str(self.sockpath) )
         sock.listen()
         poller = select.poll()
         poller.register( sock )
 
-        done = False
         nextinfo = self.tot
         nextdebug = self.tot
         self.lastflush = time.monotonic()
         _logger.info( f"Listening on {self.sockpath} for messages..." )
-        while not done:
+        while True:
             try:
                 res = poller.poll( self.timeout * 1000 )
                 t = time.monotonic()
                 if len(res) > 0:
-                    # Got a message, process it
                     conn, _ = sock.accept()
-                    bdata = conn.recv( self.max_message_size )
-                    self.msgs.push( bdata )
-                    self.tot += 1
-                    if ( self.tot >= nextinfo ):
-                        _logger.info( f"Have received {self.tot} messages." )
-                        nextinfo += self.infoevery
-                    if ( self.tot >= nextdebug ):
-                        _logger.debug( f"Have received {self.tot} messages." )
-                        nextdebug += self.debugevery
-                    conn.send( b'ok' )
+                    try:
+                        conn.settimeout( 1000 )
+                        done = False
+                        while not done:
+                            try:
+                                bdata = conn.recv( self.max_message_size )
+                            except TimeoutError:
+                                _logger.error( "Timeout trying to read from client, closing connection." )
+                                done = True
+                                continue
+
+                            if len( bdata ) < 4:
+                                _logger.error( f"Too short message received: {bdata}" )
+                                conn.send( b'error' )
+                                continue
+
+                            if bdata[0:4] == b'DONE':
+                                done = True
+                                conn.send( b'ok' )
+                                continue
+
+                            if bdata[0:4] == b'TPIC':
+                                topiclen = int.from_bytes( bdata[4:8], byteorder='little' )
+                                if len( bdata ) < topiclen + 8:
+                                    _logger.error( f"Got topic of length {topiclen}, but only "
+                                                   f"{len(bdata)-8} bytes of data!" )
+                                    conn.send( b'error' )
+                                else:
+                                    self.topic = bdata[ 8:8+topiclen ].decode( 'utf-8' )
+                                    conn.send( b'ok' )
+                                continue
+
+                            if bdata[0:4] != b'MESG':
+                                _logger.error( f"Unknown message {bdata[0:4]}" )
+                                conn.send( b'error' )
+                                continue
+
+                            self.msgs.append( bdata[4:] )
+                            conn.send( b'ok' )
+
+                            self.tot += 1
+                            if ( self.tot >= nextinfo ):
+                                _logger.info( f"Have received {self.tot} messages." )
+                                nextinfo += self.infoevery
+                            if ( self.tot >= nextdebug ):
+                                _logger.debug( f"Have received {self.tot} messages." )
+                                nextdebug += self.debugevery
+
+                    finally:
+                        conn.close()
 
                 if ( len( self.msgs ) >= self.maxmsgs ) or ( t - self.lastflush > self.timeout ):
                     self.flush()
 
-            except Exception:
-                _logger.exception()
+            except Exception as ex:
+                _logger.exception( str(ex) )
+                # Do we want to die or keep going?
                 # raise
 
 
 # ======================================================================
 def main():
     parser = argparse.ArgumentParser( 'flusher.py', description='Adapter between webap and kafka server',
-                                      formatter_class=ArgFormatter )
-    parser.add_argument( "-s", "--servers", default="kafka:9092", help="Kafka servers to produce to." )
+                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter )
+    parser.add_argument( "-s", "--servers",
+                         default=os.getenv("KAFKA_PROXY_KAFKA_SERVER", "kafka:29092"),
+                         help="Kafka servers to produce to." )
     parser.add_argument( "-t", "--topic", required=True, help="Topic to write to" )
     parser.add_argument( "-f", "--flush-timeout", default=10, type=int,
                          help="Flush after no messages received for this many seconds" )
@@ -108,7 +150,8 @@ def main():
                          help="Batch size for confluent kafka producer in bytes" )
     parser.add_argument( "-l", "--linger-ms", default=50, type=int,
                          help="Number of ms for confluent kafka producer to linger" )
-    parser.add_argument( "-p", "--socket-path", default="/tmp/flusher_socker",
+    parser.add_argument( "-p", "--socket-path",
+                         default=os.getenv("KAFKA_FLUSHER_SOCKET_PATH","/tmp/flusher_socket"),
                          help="Location of socket to create and listen to" )
     parser.add_argument( "-v", "--verbose", action='store_true', default=False )
     args = parser.parse_args()
@@ -118,7 +161,7 @@ def main():
 
     flusher = Flusher( args.topic, timeout=args.flush_timeout, maxmsgs=args.num_messages,
                        servers=args.servers, max_message_size=args.max_message_size,
-                       batch_size=args.batch_size, limgerms=args.linger_ms,
+                       batch_size=args.batch_size, lingerms=args.linger_ms,
                        sockpath=args.socket_path )
     flusher()
 

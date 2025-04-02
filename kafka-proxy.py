@@ -12,7 +12,7 @@ _logger.propagate = False
 if not _logger.hasHandlers():
     _logout = logging.StreamHandler( sys.stderr )
     _logger.addHandler( _logout )
-    _formatter = logging.Formatter( f'[%(asctime)s - flusher - %(levelname)s] - %(message)s',
+    _formatter = logging.Formatter( '[%(asctime)s - flusher - %(levelname)s] - %(message)s',
                                     datefmt='%Y-%m-%d %H:%M:%S' )
     _logout.setFormatter( _formatter )
     _logger.setLevel( logging.INFO )
@@ -31,7 +31,7 @@ class Flusher:
         self.batch_size = batch_size
         self.lingerms = lingerms
         self.sockpath = pathlib.Path( sockpath )
-        
+
         self.msgs = []
         self.tot = 0
         self.debugevery = 100
@@ -48,13 +48,13 @@ class Flusher:
         producer.flush()
         self.msgs = []
         self.lastflush = time.monotonic()
-        
-        
+
+
     def __call__( self ):
         sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
         if self.sockpath.exists():
             self.sockpath.unlink()
-        sock.bind( sockpath )
+        sock.bind( self.sockpath )
         sock.listen()
         poller = select.poll()
         poller.register( sock )
@@ -65,7 +65,7 @@ class Flusher:
         self.lastflush = time.monotonic()
         while not done:
             try:
-                res = poller.poll( self.timeout * 1000 ):
+                res = poller.poll( self.timeout * 1000 )
                 t = time.monotonic()
                 if len(res) > 0:
                     # Got a message, process it
@@ -79,14 +79,10 @@ class Flusher:
                     if ( self.tot >= nextdebug ):
                         _logger.debug( f"Have handled {self.tot} messages." )
                         nextdebug += self.debugevery
-                            
+
                 if ( len( self.msgs ) >= self.maxmsgs ) or ( t - self.lastflush > self.flushtimeout ):
                     self.flush()
 
             except Exception:
                 _logger.exception()
                 # raise
-                
-                        
-                
-            

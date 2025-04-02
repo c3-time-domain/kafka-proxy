@@ -39,6 +39,7 @@ RUN python3 -mvenv /venv
 
 RUN source /venv/bin/activate && \
     pip --no-cache install \
+       confluent_kafka==2.9.0 \
        flask==3.1.0 \
        gevent==24.11.1 \
        gunicorn==23.0.0
@@ -61,10 +62,11 @@ COPY webserver.py /webap_code/webserver.py
 ENV PYTHONPATH=/webap_code
 
 COPY run-kafka-proxy.sh /usr/src/run-kafka-proxy.sh
-COPY key.pem /usr/src/key.pem
-COPY cert.pem /usr/src/cert.pem
+RUN chmod 755 /usr/src/run-kafka-proxy.sh
+COPY bogus_key.pem /usr/src/bogus_key.pem
+COPY bogus_cert.pem /usr/src/bogus_cert.pem
 
 WORKDIR /usr/src
 
 EXPOSE 8080
-ENTRYPOINT [ "/bin/bash", "-c", "/usr/src/run_webap.sh", "test-topic", "8081", "1" ]
+ENTRYPOINT [ "/usr/src/run-kafka-proxy.sh", "test-topic", "8081", "1" ]
