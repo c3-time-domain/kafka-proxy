@@ -29,8 +29,8 @@ class HandleRequest( flask.views.View ):
             return False
 
         return True
-        
-        
+
+
     def dispatch_request( self ):
         if flask.request.headers.get( "x-kafka-proxy-token" ) != self.token:
             return "Error, wrong x-kafka-proxy-token in HTTP headers", 500
