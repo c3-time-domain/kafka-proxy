@@ -20,7 +20,7 @@ The web server will then forward the messages (potentially with a delay of sever
 
 All requests sent to the server must include a header `x-kafka-proxy-token` whose contents match the token value specified server side.
 
-### How it works (and why)
+## How it works (and why)
 
 The proxy server uses the `confluent_kafka` python module to post to the kafka server.  Ideally, we want to send messages to the kafka server in batches, to minimize the overhead of starting up a new `Producer` and making a new connection.  As such, we'd like to batch the messages sent to the webserver.  This adds another challenge.  The webserver, running under Flask, will in general have multiple processes running, and may also be using something like `gevent` that allows each process to run multiple threads.  This means that there's no sane way to store, in memory, a list of messages that the webserver accumulates for batch sending to the kafka server.  We could accumulate them on disk, or in something like a database, but that's a little excessive for what is ultimately a very short-term cache.
 
@@ -30,7 +30,7 @@ The flusher will push messages to the kafka server when it's accumluated 100 mes
 
 TODO : put in signal handling in both the webserver and the flusher so that they shut down cleanly.  On receiving INT, TERM, or any other signal that indicates the process might be ending, the webserver should stop accepting connections.  The flusher should push any messages it has cached to the kafka server and stop accepting connections from the web server. 
 
-### Running it
+## Running it
 
 The Dockerfile produces a Docker image that runs the server.  If you look at the Docker image, you'll see that it runs the shell script `run-kafka-proxy.sh`, which starts the flusher process and then launches the `gunicorn` web server.  As an example, in the `test` subdirectory is a `docker-compose.yaml` file that starts up a kafka server, and a kafka-proxy server.  The `test_*.py` files in that directory then talk to the kafka-proxy server.
 
