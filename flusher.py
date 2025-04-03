@@ -158,7 +158,7 @@ def main():
     parser.add_argument( "--force-topic", default=False, action='store_true',
                          help=( "Normally --topic is used only if there isn't a cached topic. "
                                 "Add --force-topic to use the topic in --topic instead of the cached one." ) )
-    parser.add_argument( "-f", "--flush-timeout", default=10, type=int,
+    parser.add_argument( "-f", "--flush-timeout", default=5, type=int,
                          help="Flush after no messages received for this many seconds" )
     parser.add_argument( "-n", "--num-messages", default=100, type=int,
                          help="Flush after receiving this many messages" )
