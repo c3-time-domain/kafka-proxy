@@ -6,8 +6,8 @@ import logging
 import flask
 import flask.views
 
-_loglevel = logging.DEBUG
-# _loglevel = logging.INFO
+# _loglevel = logging.DEBUG
+_loglevel = logging.INFO
 
 
 class BaseHandleRequest( flask.views.View ):
@@ -18,15 +18,16 @@ class BaseHandleRequest( flask.views.View ):
         self.comm_timeout = 2
 
     def send_done( self, sock ):
-        sock.send( b'DONE' )
+        logger = flask.current_app.logger
 
+        sock.send( b'DONE' )
         try:
             resp = sock.recv( 256 )
         except TimeoutError:
-            flask.current_app.logger.error( "Timed out waiting for response from server after DONE." )
+            logger.error( "Timed out waiting for response from server after DONE." )
             return False
         if resp != b'ok':
-            flask.current_app.logger.error( f"Got unexpected response {resp} from server after DONE." )
+            logger.error( f"Got unexpected response {resp} from server after DONE." )
             return False
 
         return True
@@ -42,6 +43,8 @@ class HandleRequest( BaseHandleRequest ):
         if flask.request.content_type != "application/octet-stream":
             return f"Error, expected application/octet-stream data, not {flask.request.content_type}", 500
 
+        logger = flask.current_app.logger
+
         # Extract the messages from the binary data sent in the POST.
         #   All of this binary parsing makes me think I should just have
         #   written this in C.  Or that maybe this is just overdone,
@@ -56,10 +59,10 @@ class HandleRequest( BaseHandleRequest ):
             msgsize = int.from_bytes( flask.request.data[ptr:ptr+4], byteorder='little' )
             ptr += 4
             if ( ptr + msgsize ) > len( flask.request.data ):
-                flask.current_app.logger.error( f"Got a {len(flask.request.data)}-byte message; "
-                                                f"after parsing {len(msgs)} messages, received a "
-                                                f"{msgsize} message at {ptr}, where there were only "
-                                                f"{len(flask.request.data)-ptr} bytes left." )
+                logger.error( f"Got a {len(flask.request.data)}-byte message; "
+                              f"after parsing {len(msgs)} messages, received a "
+                              f"{msgsize} message at {ptr}, where there were only "
+                              f"{len(flask.request.data)-ptr} bytes left." )
                 now = datetime.datetime.now( tz=datetime.UTC ).isoformat()
                 return f"Error, mal-formed data at {now}", 500
             msgs.append( b'MESG' + flask.request.data[ ptr:ptr+msgsize ] )
@@ -71,27 +74,27 @@ class HandleRequest( BaseHandleRequest ):
         sock = None
         try:
             sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
-            flask.current_app.logger.debug( f"Trying to connect to socket at {self.socket_file}" )
+            logger.debug( f"Trying to connect to socket at {self.socket_file}" )
             sock.connect( self.socket_file )
             sock.settimeout( self.comm_timeout )
 
-            flask.current_app.logger.debug( f"Sending {len(msgs)} messages to flusher..." )
+            logger.debug( f"Sending {len(msgs)} messages to flusher..." )
             for msg in msgs:
                 nsent = sock.send( msg )
                 now = datetime.datetime.now( tz=datetime.UTC ).isoformat()
                 if nsent != len( msg ):
-                    flask.current_app.logger.error( f"Only sent {nsent} of a {len(msg)}-byte message to flusher." )
+                    logger.error( f"Only sent {nsent} of a {len(msg)}-byte message to flusher." )
                     return f"Failed to send data to flusher at {now}", 500
                 try:
                     resp = sock.recv( 256 )
                 except TimeoutError:
-                    flask.current_app.logger.error( "Timeout waiting to hear from flusher" )
+                    logger.error( "Timeout waiting to hear from flusher" )
                     return f"Conection to updater timed out at {now}.", 500
                 if resp == b'error':
                     self.send_done( sock )
                     return f"Error response from flusher at {now}", 500
                 elif resp != b'ok':
-                    flask.current_app.logger.error( f"Unexpected response from flusher: {resp}" )
+                    logger.error( f"Unexpected response from flusher: {resp}" )
                     return f"Unexpected response from flusher at {now}", 500
 
             if not self.send_done( sock ):
@@ -102,7 +105,7 @@ class HandleRequest( BaseHandleRequest ):
             return rval
 
         except Exception as ex:
-            flask.current_app.logger.exception( ex )
+            logger.exception( ex )
             now = datetime.datetime.now( tz=datetime.UTC ).isoformat()
             return f"Exception handling request at {now}", 500
 
@@ -117,10 +120,12 @@ class ChangeTopic( BaseHandleRequest ):
         if flask.request.headers.get( "x-kafka-proxy-token" ) != self.token:
             return "Error, wrong x-kafka-proxy-token in HTTP headers", 500
 
+        logger = flask.current_app.logger
+
         sock = None
         try:
             sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM, 0 )
-            flask.current_app.logger.debug( f"Trying to connect to socket at {self.socket_file}" )
+            logger.debug( f"Trying to connect to socket at {self.socket_file}" )
             sock.connect( self.socket_file )
             sock.settimeout( self.comm_timeout )
 
@@ -129,12 +134,12 @@ class ChangeTopic( BaseHandleRequest ):
             now = datetime.datetime.now( tz=datetime.UTC )
             try:
                 resp = sock.recv( 256 )
-                flask.current_app.logger.debug( f"Got response from topic change from server: {resp}" )
+                logger.debug( f"Got response from topic change from server: {resp}" )
             except TimeoutError:
-                flask.current_app.logger.error( "Timed out waiting to hear from flusher about topic change." )
+                logger.error( "Timed out waiting to hear from flusher about topic change." )
                 return "Timed out waiting for topic change response.", 500
             if resp != b'ok':
-                flask.current_app.logger.error( f"Unexpected response from flusher after topic change: {resp}" )
+                logger.error( f"Unexpected response from flusher after topic change: {resp}" )
                 return "Unexpected response from flusher", 500
 
             if not self.send_done( sock ):
@@ -142,7 +147,8 @@ class ChangeTopic( BaseHandleRequest ):
                 return f"Error trying to tell the flusher we were done after topic change at {now}", 500
 
         finally:
-            sock.close()
+            if sock is not None:
+                sock.close()
 
         return f"Topic changed to {topic}", 200
 
