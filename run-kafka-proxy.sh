@@ -19,8 +19,8 @@ fi
 
 echo "Going to listen on port ${port}"
 
-# python /webap_code/flusher.py -t $topic &
-python /webap_code/flusher.py -t $topic -v &
+python /webap_code/flusher.py -t $topic &
+# python /webap_code/flusher.py -t $topic -v &
 
 if [ $bogus -ne 0 ]; then
     echo "WARNING : running with bogus self-signed certificate (OK for tests, not for anything public)"
