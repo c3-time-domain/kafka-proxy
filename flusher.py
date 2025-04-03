@@ -83,10 +83,11 @@ class Flusher:
         while True:
             try:
                 res = poller.poll( self.timeout * 1000 )
-                t = time.monotonic()
                 if len(res) > 0:
                     conn, _ = sock.accept()
                     try:
+                        # Even a 1-second timeout is probably excessive, since we poll
+                        #   was just told there were messages waiting in the socket.
                         conn.settimeout( 1000 )
                         done = False
                         while not done:
@@ -138,6 +139,7 @@ class Flusher:
                     finally:
                         conn.close()
 
+                t = time.monotonic()
                 if ( len( self.msgs ) >= self.maxmsgs ) or ( t - self.lastflush > self.timeout ):
                     self.flush()
 
