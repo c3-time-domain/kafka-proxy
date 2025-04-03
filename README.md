@@ -39,8 +39,10 @@ When first started, the proxy will post to a default on the kafka server.  (That
 
 You can configure the proxy by setting several environment variables:
 * `KAFKA_PROXY_TOKEN` : a string of (ideally) randomly generated characters.  This is what keeps anybody in the world from pushing messages to your kafka server.  The client must post requests with exactly this string in the `x-kafka-proxy-token` HTTP header.  You definintely want to set this to something, and you don't want to make this public.  You can generate a reasonable token in python with:
+
         import secrets
         ''.join( secrets.choice( "abcdefghijklmnopqrstuvwxyz0123456789" ) for i in range(32) )
+
 * `KAFKA_PROXY_KAFKA_SERVER` : the kafka server to push to.  Defaults to "kafka:29092", which is what is needed in our tests.
 * `KAFKA_FLUSHER_SOCKET_PATH` : filesystem location of the Unix socket that the flusher and webserver use to communicate.  Defaults to `/tmp/flusher_socket`, and there's probably no reason to muck with this.
 * `KAFKA_FLUSHER_TOPIC_CACHE` : filesystem location of a file that stores the topic to which the flusher is posting.  This is here so that if the flusher restarts, it will continue to post to the same topic that it was posting to when it left off.  The default is `/kafka_topic_cache/topic`.  To use this, make sure that `/kafka_topic_cache` (or wherever you configure this) is persistent storage that will survive server restarts.
