@@ -15,7 +15,7 @@ import confluent_kafka
 
 @pytest.fixture( scope='session' )
 def server():
-    return "https://localhost:8081"
+    return "https://localhost:8080"
 
 
 @pytest.fixture( scope='session' )

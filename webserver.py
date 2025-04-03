@@ -13,7 +13,7 @@ _loglevel = logging.DEBUG
 class BaseHandleRequest( flask.views.View ):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
-        self.token = os.getenv( "KAFKA_PROXY_TOKEN", "default-token" )
+        self.token = os.getenv( "KAFKA_PROXY_TOKEN", "default-token-do-not-really-use-this" )
         self.socket_file = os.getenv( "KAFKA_FLUSHER_SOCKET_PATH", "/tmp/flusher_socket" )
         self.comm_timeout = 2
 

@@ -32,7 +32,7 @@ FROM base AS build
 RUN DEBIAN_FRONTEND="noninteractive" TZ="UTC" \
     apt-get update \
     && DEBIAN_FRONTEND="noninteractive" TZ="UTC" \
-    apt-get -y install -y python3-pip python3-venv git
+    apt-get -y install -y python3-pip python3-venv
 
 RUN mkdir /venv
 RUN python3 -mvenv /venv
@@ -45,12 +45,20 @@ RUN source /venv/bin/activate && \
        gunicorn==23.0.0
 
 # ======================================================================
-# This is for the test webserver.  It installs and uses crappy keys so
-#   you can connect via https.
-# The production webserver is going to be on Spin and won't do
-#   SSL management itself (the spin ingress handles that).  We
-#   will replace the entrypoint there (not including the last
-#   argument to run_webap.sh, which tells it not to use ssl keys.)
+# Install a crappy SSL key and cert (which are insecure because they're
+#   public on the git archive) so our tests can connect via https.  To
+#   use them, you have to change the entrypoint and add two arguments [
+#   "8080", "1" ] to the end at runtime.  (The file
+#   test/docker-compose.yaml does this, for example.)  ("8080" is the
+#   port the web server listens on, and you can change that too it you
+#   want.)  Without adding those arguments, the webserver only only
+#   accept unencrypted http connections.  If you want to use SSL with a
+#   real key and certificate, you can replace the two bogus_* files and
+#   rebuild the Dockerfile, or edit this Dockerfile and
+#   run-kafka-proxy.sh as necessary, or you can put the server behind a
+#   web proxy.  (The production webserver is going to be on NERSC Spin
+#   and won't do SSL management itself; the spin ingress handles that.)
+
 FROM base AS webserver
 
 COPY --from=build /venv/ /venv/
@@ -69,4 +77,4 @@ COPY bogus_cert.pem /usr/src/bogus_cert.pem
 WORKDIR /usr/src
 
 EXPOSE 8080
-ENTRYPOINT [ "/usr/src/run-kafka-proxy.sh", "test-topic", "8081", "1" ]
+ENTRYPOINT [ "/usr/src/run-kafka-proxy.sh", "test-topic" ]

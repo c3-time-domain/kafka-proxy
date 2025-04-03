@@ -158,9 +158,11 @@ def main():
     parser.add_argument( "--force-topic", default=False, action='store_true',
                          help=( "Normally --topic is used only if there isn't a cached topic. "
                                 "Add --force-topic to use the topic in --topic instead of the cached one." ) )
-    parser.add_argument( "-f", "--flush-timeout", default=5, type=int,
-                         help="Flush after no messages received for this many seconds" )
-    parser.add_argument( "-n", "--num-messages", default=100, type=int,
+    parser.add_argument( "-f", "--flush-timeout", type=float,
+                         default=float( os.getenv( "KAFKA_FLUSHER_TIMEOUT", "5" ) ),
+                         help="Flush after at least this often in seconds" )
+    parser.add_argument( "-n", "--num-messages", type=int,
+                         default=int( os.getenv( "KAFKA_FLUSHER_NUM_MESSAGES", "100" ) ),
                          help="Flush after receiving this many messages" )
     parser.add_argument( "-m", "--max-message-size", default=262144, type=int,
                          help="Maximum message size we'll get in bytes" )
